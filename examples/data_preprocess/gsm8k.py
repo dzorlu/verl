@@ -74,6 +74,7 @@ if __name__ == "__main__":
                     }
                 ],
                 "ability": "math",
+                "agent_name": "gsm8k_agent",
                 "reward_model": {"style": "rule", "ground_truth": solution},
                 "extra_info": {
                     "split": split,

@@ -1,0 +1,77 @@
+name: verl-interactive-multinode
+
+resources:
+  accelerators: {L4:1, A100:1, RTX6000:1, RTX4090:1, RTX3090:1, A6000:1, T4:1, A10:1}
+  image_id: docker:hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0
+  autostop: 60m
+
+num_nodes: 2
+
+workdir: .
+
+envs:
+  WANDB_API_KEY: f66373399824f8c1942490b0862a664b8afc8802
+
+file_mounts:
+  # Shared training data - available on all nodes
+  /workspace/data:
+    name: dzorlu-verl-training-data-2025
+    source: /Users/dzorlu/data/gsm8k
+    store: gcs
+    mode: COPY
+
+  # Shared checkpoints - survives cluster restarts
+  /workspace/checkpoints:
+    name: dzorlu-verl-checkpoints-2025
+    store: gcs
+    mode: MOUNT_CACHED
+    persistent: True
+
+  # Shared logs - all nodes write here
+  /workspace/logs:
+    name: dzorlu-verl-logs-2025
+    store: gcs
+    mode: MOUNT
+    persistent: True
+
+  # Mount local SSH directory for Git access
+  /root/.ssh:
+    source: ~/.ssh
+    mode: MOUNT
+
+setup: |
+  # Update system packages
+  apt update && apt install -y git tmux htop iperf3 netcat-openbsd
+
+  # Ensure SSH keys have correct permissions
+  chmod 700 /root/.ssh && chmod 600 /root/.ssh/id_rsa*
+
+  # The docker image already contains: PyTorch, vLLM, Ray, Flash Attention,
+  # Apex, Transformer Engine, Megatron-LM, and all VERL dependencies
+
+  # Install VERL itself (without dependencies)
+  cd /tmp
+  git clone https://github.com/volcengine/verl.git
+  cd verl
+  pip install --no-deps -e .
+  rm -rf /tmp/verl
+
+  echo "VERL setup complete! All dependencies pre-installed in docker image."
+
+run: |
+  # Activate the SkyPilot runtime env
+  source ~/skypilot-runtime/bin/activate
+
+  # Start Ray head on the first node, and workers connect back
+  head_ip=$(echo "$SKYPILOT_NODE_IPS" | head -n1)
+  if [ "$SKYPILOT_NODE_RANK" = "0" ]; then
+    ray start --head --disable-usage-stats --port=6379
+    sleep 5
+  else
+    sleep 5
+    ray start --address $head_ip:6379 --disable-usage-stats
+    sleep 5
+  fi
+
+  echo "Ray cluster is up. SSH in and run your VERL job interactively."
+
